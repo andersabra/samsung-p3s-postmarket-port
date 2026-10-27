@@ -1,0 +1,40 @@
+# Reference: <https://postmarketos.org/deviceinfo>
+# Please use double quotes only. You can source this file in shell
+# scripts.
+
+deviceinfo_format_version="0"
+deviceinfo_name="Galaxy S21 Ultra"
+deviceinfo_manufacturer="Samsung"
+deviceinfo_codename="samsung-p3s"
+deviceinfo_year="2021"
+deviceinfo_dtb="exynos2100-p3s"
+deviceinfo_arch="aarch64"
+
+# Device related
+deviceinfo_chassis="handset"
+
+# Bootloader related
+deviceinfo_flash_method="heimdall-bootimg"
+deviceinfo_kernel_cmdline="console=tty0 consoleblank=0 clk_ignore_unused pd_ignore_unused rdinit=/usr/libexec/p3s-init.sh loop.max_part=7 androidboot.selinux=permissive"
+deviceinfo_generate_bootimg="true"
+deviceinfo_header_version="3"
+deviceinfo_flash_pagesize="2048"
+deviceinfo_rootfs_image_sector_size="4096"
+deviceinfo_flash_offset_base="0x10000000"
+deviceinfo_flash_offset_kernel="0x00008000"
+deviceinfo_flash_offset_ramdisk="0x01000000"
+deviceinfo_flash_offset_tags="0x00000100"
+deviceinfo_flash_offset_dtb="0x01f00000"
+deviceinfo_bootimg_qcdt="false"
+deviceinfo_dtb_second="false"
+deviceinfo_bootimg_os_version="11.0.0"
+deviceinfo_bootimg_os_patch_level="2024-12"
+deviceinfo_flash_heimdall_partition_kernel="BOOT"
+deviceinfo_flash_heimdall_partition_rootfs="USERDATA"
+deviceinfo_usb_network_function="rndis"
+# the kernel also has dummy_udc.0; use the real controller
+deviceinfo_usb_network_udc="10e00000.usb"
+
+# kernel 5.4 cannot unpack zstd initramfs (support arrived in 5.9); use gzip (CONFIG_RD_GZIP=y)
+deviceinfo_initfs_compression="gzip"
+deviceinfo_initfs_extra_compression="gzip"

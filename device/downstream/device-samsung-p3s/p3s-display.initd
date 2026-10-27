@@ -1,0 +1,25 @@
+#!/sbin/openrc-run
+# Galaxy S21 Ultra (p3s) display: loads Samsung's display stack in the order it needs
+# (display PMICs, then the s6e3had panel data, then dpu) and runs p3s-fbmirror, which
+# copies the console framebuffer (simple-framebuffer) to the panel.
+
+name="p3s-display"
+description="Bring up the S21 Ultra panel and mirror the console onto it"
+
+command="/usr/libexec/p3s-fbmirror"
+command_args="${P3S_FBMIRROR_ARGS:--c}"
+command_background="yes"
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/${RC_SVCNAME}.log"
+error_log="/var/log/${RC_SVCNAME}.log"
+
+depend() {
+	need dev localmount
+	after udev-settle modules
+}
+
+start_pre() {
+	# dpu must probe after the panel data module, or it reports "panel not found";
+	# named modules load even though modprobe.d blacklists them for udev
+	modprobe -a s2mpb02_regulator s2dos05_regulator mcd_panel_s6e3had dpu
+}

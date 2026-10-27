@@ -1,0 +1,94 @@
+# Reference: <https://postmarketos.org/vendorkernel>
+# Maintainer: Anders <alchemistmedude@gmail.com>
+pkgname=linux-samsung-p3s
+pkgver=5.4.302
+pkgrel=7
+pkgdesc="Samsung Galaxy S21 Ultra (p3s) downstream kernel"
+arch="aarch64"
+_carch="arm64"
+_flavor="samsung-p3s"
+url="https://github.com/ProtonKernel/Proton"
+license="GPL-2.0-only"
+options="!strip !check !tracedeps pmb:cross-native"
+makedepends="
+	bash bc bison clang devicepkg-dev findutils flex lld llvm openssl-dev perl
+"
+_repository="Proton"
+_commit="a0d73239d600d9ec89e7ac4775d2139d4d61290e"
+_config="config-$_flavor.$arch"
+source="
+	$pkgname-$_commit.tar.gz::https://github.com/ProtonKernel/Proton/archive/$_commit.tar.gz
+	$_config
+	statx-add-mount-id.patch
+	statx-add-mount-root.patch
+	faccessat2.patch
+"
+builddir="$srcdir/$_repository-$_commit"
+_outdir="out"
+
+prepare() {
+	default_prepare
+	export CCACHE_DISABLE=1
+	sed -i 's|#include <linux/compiler-gcc.h>|/* patched out compiler-gcc.h */|' \
+		include/linux/compiler_types.h || true
+	find drivers/sensorhub drivers/vision drivers/video/fbdev/exynos/panel/ea8082 \
+                drivers/media/platform/exynos/camera \
+		-name Makefile -exec sh -c 'echo "# disabled for pmOS" > "$1"' _ {} \;
+	# (a sec_feat_uses_rbin stub used to be appended to kernel/panic.c here; with
+	# proton_defconfig the real symbol is built, so the stub would be a duplicate)
+	# Proton's Mali Kbuild lists the adaptive power policy as a .c instead of a .o,
+	# so it is never compiled and mali_kbase.ko fails with an undefined symbol
+	sed -i 's|backend/gpu/mali_kbase_pm_adaptive.c|backend/gpu/mali_kbase_pm_adaptive.o|' \
+		drivers/gpu/arm/bv_r38p0/backend/gpu/Kbuild
+	. downstreamkernel_prepare
+
+	# downstreamkernel_prepare evaluates the config with gcc, which silently drops the
+	# clang-only options ProtonPlus is built with (ThinLTO, shadow call stack).
+	# Re-evaluate the original config with the same toolchain build() uses.
+	cp "$srcdir/$_config" "$builddir/$_outdir/.config"
+	make O="$_outdir" ARCH="$_carch" \
+		CC="clang" \
+		HOSTCC="gcc" \
+		LD="ld.lld" \
+		CLANG_TRIPLE="aarch64-linux-gnu-" \
+		CROSS_COMPILE="aarch64-alpine-linux-musl-" \
+		olddefconfig
+	grep -E "^CONFIG_(CC_IS_CLANG|LTO_CLANG|THINLTO|SHADOW_CALL_STACK)=" "$_outdir/.config" || true
+}
+
+build() {
+	export CCACHE_DISABLE=1
+	unset LDFLAGS
+	make O="$_outdir" ARCH="$_carch" \
+		CC="clang" \
+		HOSTCC="gcc" \
+		LD="ld.lld" \
+		CLANG_TRIPLE="aarch64-linux-gnu-" \
+		CROSS_COMPILE="aarch64-alpine-linux-musl-" \
+		KBUILD_BUILD_VERSION="$((pkgrel + 1))-postmarketOS" \
+		Image modules
+}
+
+package() {
+	downstreamkernel_package "$builddir" "$pkgdir" "$_carch" \
+		"$_flavor" "$_outdir"
+
+	# the vendor drivers (clocks, pinctrl, PMIC, USB PHY, UFS...) are modules: ship them
+	make O="$_outdir" ARCH="$_carch" \
+		CC="clang" \
+		HOSTCC="gcc" \
+		LD="ld.lld" \
+		CLANG_TRIPLE="aarch64-linux-gnu-" \
+		CROSS_COMPILE="aarch64-alpine-linux-musl-" \
+		INSTALL_MOD_PATH="$pkgdir" INSTALL_MOD_STRIP=1 \
+		modules_install
+	rm -f "$pkgdir"/lib/modules/*/build "$pkgdir"/lib/modules/*/source
+}
+
+sha512sums="
+454ca749c3e7b6fe8ba09c209c65be573e30f4c4241dffd0f17476a3d6fdb179ebe29c688c2af55cb5729e250253df7f11c43b992d00df91d0d8b309a2897ccc  linux-samsung-p3s-a0d73239d600d9ec89e7ac4775d2139d4d61290e.tar.gz
+7a905bb08fd3bf9b9d641e9973c205e1b850092a44a38e3dc2c5e5e68403e81575264f8a69c2ac1d9979314a1819fe3e2f3d9d0b67671bd5131f9e0e33941719  config-samsung-p3s.aarch64
+ddc47cf5406eee46432f8196992f4d647ccaf920bc0c4e2583a6ed111672acde35f2e1db4a7f4645bd81af27915f259a3e4b68925bb63857480597aa9774251f  statx-add-mount-id.patch
+d761ebebe624d96b85b9f62858e65a59f4d38b1827648ed1dc675d2f3c2bc4396babbbe1d125b494fd6b5f362f020092f114f9115b83239156c770b5e3ef4c8f  statx-add-mount-root.patch
+d6a0c635fe1a3ab68b7b9d5551d2ea8f93e78cbcf789a91ed64e7a34bff69d7629492bb7f48ef6b63be341d9dd128a7b10d16a1d09506c6e30b704fcabd06c07  faccessat2.patch
+"

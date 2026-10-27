@@ -1,0 +1,73 @@
+From: Miklos Szeredi <mszeredi@redhat.com>
+Subject: [PATCH] statx: add mount ID (backport of v5.8 fa2fcf4f1df1)
+
+systemd (tmpfiles, sysusers, chase) requires STATX_MNT_ID. Linux 5.4 lacks it, so
+every path lookup in those tools fails with "No error information".
+Backported to the ProtonPlus 5.4 tree for postmarketOS on samsung-p3s.
+---
+diff --git a/fs/stat.c b/fs/stat.c
+index 8312b15..13a270e 100644
+--- a/fs/stat.c
++++ b/fs/stat.c
+@@ -24,6 +24,8 @@
+ #include <linux/uaccess.h>
+ #include <asm/unistd.h>
+ 
++#include "mount.h"
++
+ #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+ extern void susfs_sus_ino_for_generic_fillattr(unsigned long ino, struct kstat *stat);
+ #endif
+@@ -226,6 +229,8 @@ int vfs_statx(int dfd, const char __user *filename, int flags,
+ 		goto out;
+ 
+ 	error = vfs_getattr(&path, stat, request_mask, flags);
++	stat->mnt_id = real_mount(path.mnt)->mnt_id;
++	stat->result_mask |= STATX_MNT_ID;
+ 	path_put(&path);
+ 	if (retry_estale(error, lookup_flags)) {
+ 		lookup_flags |= LOOKUP_REVAL;
+@@ -599,6 +604,7 @@ cp_statx(const struct kstat *stat, struct statx __user *buffer)
+ 	tmp.stx_rdev_minor = MINOR(stat->rdev);
+ 	tmp.stx_dev_major = MAJOR(stat->dev);
+ 	tmp.stx_dev_minor = MINOR(stat->dev);
++	tmp.stx_mnt_id = stat->mnt_id;
+ 
+ 	return copy_to_user(buffer, &tmp, sizeof(tmp)) ? -EFAULT : 0;
+ }
+diff --git a/include/linux/stat.h b/include/linux/stat.h
+index 528c4ba..56614af 100644
+--- a/include/linux/stat.h
++++ b/include/linux/stat.h
+@@ -47,6 +47,7 @@ struct kstat {
+ 	struct timespec64 ctime;
+ 	struct timespec64 btime;			/* File creation time */
+ 	u64		blocks;
++	u64		mnt_id;
+ };
+ 
+ #endif
+diff --git a/include/uapi/linux/stat.h b/include/uapi/linux/stat.h
+index ad80a5c..69d6f24 100644
+--- a/include/uapi/linux/stat.h
++++ b/include/uapi/linux/stat.h
+@@ -123,7 +123,10 @@ struct statx {
+ 	__u32	stx_dev_major;	/* ID of device containing file [uncond] */
+ 	__u32	stx_dev_minor;
+ 	/* 0x90 */
+-	__u64	__spare2[14];	/* Spare space for future expansion */
++	__u64	stx_mnt_id;
++	__u64	__spare2;
++	/* 0xa0 */
++	__u64	__spare3[12];	/* Spare space for future expansion */
+ 	/* 0x100 */
+ };
+ 
+@@ -149,6 +152,7 @@ struct statx {
+ #define STATX_BASIC_STATS	0x000007ffU	/* The stuff in the normal stat struct */
+ #define STATX_BTIME		0x00000800U	/* Want/got stx_btime */
+ #define STATX_ALL		0x00000fffU	/* All currently supported flags */
++#define STATX_MNT_ID		0x00001000U	/* Got stx_mnt_id */
+ #define STATX__RESERVED		0x80000000U	/* Reserved for future struct statx expansion */
+ 
+ /*

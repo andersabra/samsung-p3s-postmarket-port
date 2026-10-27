@@ -1,0 +1,85 @@
+# Reference: <https://postmarketos.org/devicepkg>
+# Maintainer: Anders <alchemistmedude@gmail.com>
+pkgname=device-samsung-p3s
+pkgver=1
+pkgrel=19
+pkgdesc="Samsung Galaxy S21 Ultra"
+url="https://postmarketos.org"
+arch="aarch64"
+license="MIT"
+depends="
+	android-tools-mkbootimg
+	linux-samsung-p3s
+	postmarketos-base
+	postmarketos-base-downstream
+	reboot-mode
+"
+makedepends="devicepkg-dev linux-headers"
+source="
+	deviceinfo
+	modules-initfs
+	exynos2100-p3s.dtb
+	modprobe-blacklist.conf
+	p3s-init.sh
+	samsung-p3s.files
+	p3s-fbmirror.c
+	p3s-console-size.c
+	p3s-display.initd
+	p3s-display.confd
+	modules-load.conf
+	networkmanager.conf
+"
+install="$pkgname.post-install $pkgname.post-upgrade"
+options="!archcheck !check"
+subpackages="$pkgname-nonfree-firmware:nonfree_firmware"
+
+build() {
+	devicepkg_build $startdir $pkgname
+	${CC:-gcc} $CFLAGS -O2 -Wall -o "$srcdir"/p3s-fbmirror "$srcdir"/p3s-fbmirror.c $LDFLAGS
+	${CC:-gcc} $CFLAGS -O2 -Wall -o "$srcdir"/p3s-console-size "$srcdir"/p3s-console-size.c $LDFLAGS
+}
+
+package() {
+	devicepkg_package $startdir $pkgname
+	install -Dm644 "$srcdir"/exynos2100-p3s.dtb \
+		"$pkgdir"/boot/dtbs/exynos2100-p3s.dtb
+	install -Dm644 "$srcdir"/modprobe-blacklist.conf \
+		"$pkgdir"/etc/modprobe.d/samsung-p3s-blacklist.conf
+	install -Dm755 "$srcdir"/p3s-init.sh \
+		"$pkgdir"/usr/libexec/p3s-init.sh
+	install -Dm644 "$srcdir"/samsung-p3s.files \
+		"$pkgdir"/usr/share/mkinitfs/files/50-samsung-p3s.files
+	install -Dm755 "$srcdir"/p3s-fbmirror \
+		"$pkgdir"/usr/libexec/p3s-fbmirror
+	install -Dm755 "$srcdir"/p3s-console-size \
+		"$pkgdir"/usr/bin/p3s-console-size
+	install -Dm755 "$srcdir"/p3s-display.initd \
+		"$pkgdir"/etc/init.d/p3s-display
+	install -Dm644 "$srcdir"/modules-load.conf \
+		"$pkgdir"/etc/modules-load.d/samsung-p3s.conf
+	install -Dm644 "$srcdir"/networkmanager.conf \
+		"$pkgdir"/etc/NetworkManager/conf.d/50-samsung-p3s.conf
+	install -Dm644 "$srcdir"/p3s-display.confd \
+		"$pkgdir"/etc/conf.d/p3s-display
+}
+
+nonfree_firmware() {
+	pkgdesc="Wi-Fi and Bluetooth firmware for Samsung Galaxy S21 Ultra (p3s)"
+	depends="firmware-samsung-p3s"
+	mkdir "$subpkgdir"
+}
+
+sha512sums="
+07f166c9a29fefe740e33e1b1dd8ec57489f4ecb09dcdb77688c4585a8c23b40ef1268a1c75056a4fa80bab9afa4f79e4c892ef40239a68d4606b2fae0c70c77  deviceinfo
+ae928dd6ffec8a51e06df147d6e376b9eedaeb55607eefcd61e6a7c91daf86a1b380adda0dd17bc464fd2d37f052083524d69c9ad30627e6bfc03c56099f862f  modules-initfs
+f4d05de5babc1b1ad20081eea619dc41921e0062d4ac6b0da17e3613abdd0e0436409961a360f30347c0349ea2dd75e5efd8cfb8ecdd1ca6daf0ab3ca41adae9  exynos2100-p3s.dtb
+da85472c44659b68a564e70960928390b60e0e6ab44a49f6878fcf824f17dbfe686f46033fca500d37ed08c2dd644a36b22aa3ac7691bba9b073bc4ffb0650ca  modprobe-blacklist.conf
+368d03497c414c973963b9cef63e138d326c986e12a3f543c89c99ed45cf1d02235fba2b4f5032f647491468b75a165369ad35f18da6d9e577b6beb30521fee1  p3s-init.sh
+e33c6ee24b426f997aaaa263b3288d0c6eee6510337fd015c52ebdd02a6f92fa403b2b2595fbd40abe3c4d0fd4e945318d0159fda68ccc782febfc7301358db2  samsung-p3s.files
+11709b8c5b4b6fc9668eaeac40316cf6a97581cbfad6aad6780e7d876108074d930bdd274c8780fe1b260f0eb7d8ae54082ac6a93d2adb8ecffd9bf6b26db87c  p3s-fbmirror.c
+118155197cf2598c195829da1505623a5a21c1979b6c8a6cf541e4857988aed2a4d5cf48834bc7e6d22f66e183ff330c708a31479802fded3e121a65db408d52  p3s-console-size.c
+2021bc1b0de7835d4ba72fe7a91f561d4438220a0eed13544957141167128210dcb7a88870fae45307b4d382bfadfa360d94d37ed3fd974ddf88d803e06762e3  p3s-display.initd
+c1a9acb4b0f9fd480557c69d96309ea73c95d094e0c979eceae512ea73cb0cce4c3147488073e38353dfb5b575630765fe79c089da3e0eecb18ff48747d014f0  p3s-display.confd
+8336f9f5e8117d5b29a1ea30f039de9fa045c95330caa6f19861078316a06a154ca73b51bf50d008416429b6c00108776ef1a7c549deda57a340a494f320152b  modules-load.conf
+62ad2390cb9ac226f69ebcb583a8dffd689c3e3dd7135cea21475ae449c6aeabea1c8c0782c9c5cdfd7eaf388963fb932d649a6205599d480abd115682c8a051  networkmanager.conf
+"

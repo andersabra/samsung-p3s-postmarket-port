@@ -1,0 +1,154 @@
+From: Miklos Szeredi <mszeredi@redhat.com>
+Subject: [PATCH] vfs: add faccessat2 syscall (backport of v5.8 c8ffd8bcdad2)
+
+musl implements faccessat() with AT_SYMLINK_NOFOLLOW/AT_EACCESS via faccessat2 and
+returns EINVAL without it, so systemd-tmpfiles cannot tell that optional files under
+/usr/share/factory are missing ("Failed to copy files to /etc/...").
+Syscall 439 as upstream; 436-438 stay unimplemented. arm64 only (no compat entry).
+Backported to the ProtonPlus 5.4 tree for postmarketOS on samsung-p3s.
+---
+diff --git a/fs/internal.h b/fs/internal.h
+index 36544c10f..e69feb517 100644
+--- a/fs/internal.h
++++ b/fs/internal.h
+@@ -134,7 +134,7 @@ extern struct file *do_file_open_root(struct dentry *, struct vfsmount *,
+ 		const char *, const struct open_flags *);
+ 
+ long do_sys_ftruncate(unsigned int fd, loff_t length, int small);
+-long do_faccessat(int dfd, const char __user *filename, int mode);
++long do_faccessat(int dfd, const char __user *filename, int mode, int flags);
+ int do_fchmodat(int dfd, const char __user *filename, umode_t mode);
+ int do_fchownat(int dfd, const char __user *filename, uid_t user, gid_t group,
+ 		int flag);
+diff --git a/fs/open.c b/fs/open.c
+index ea5cd7b9a..381de5957 100644
+--- a/fs/open.c
++++ b/fs/open.c
+@@ -360,10 +360,10 @@ extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int
+ 			int *flags);
+ #endif
+ 
+-long do_faccessat(int dfd, const char __user *filename, int mode)
++long do_faccessat(int dfd, const char __user *filename, int mode, int flags)
+ {
+-	const struct cred *old_cred;
+-	struct cred *override_cred;
++	const struct cred *old_cred = NULL;
++	struct cred *override_cred = NULL;
+ 	struct path path;
+ 	struct inode *inode;
+ 	int res;
+@@ -384,6 +384,18 @@ long do_faccessat(int dfd, const char __user *filename, int mode)
+ 	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
+ 		return -EINVAL;
+ 
++	if (flags & ~(AT_EACCESS | AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH))
++		return -EINVAL;
++
++	if (flags & AT_SYMLINK_NOFOLLOW)
++		lookup_flags &= ~LOOKUP_FOLLOW;
++	if (flags & AT_EMPTY_PATH)
++		lookup_flags |= LOOKUP_EMPTY;
++
++	/* AT_EACCESS: check with the effective ids, i.e. the current creds */
++	if (flags & AT_EACCESS)
++		goto retry;
++
+ 	override_cred = prepare_creds();
+ 	if (!override_cred)
+ 		return -ENOMEM;
+@@ -462,8 +474,10 @@ long do_faccessat(int dfd, const char __user *filename, int mode)
+ 		goto retry;
+ 	}
+ out:
+-	revert_creds(old_cred);
+-	put_cred(override_cred);
++	if (old_cred) {
++		revert_creds(old_cred);
++		put_cred(override_cred);
++	}
+ 	return res;
+ }
+ 
+@@ -477,12 +491,21 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
+ #ifdef CONFIG_KSU
+ 	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
+ #endif
+-	return do_faccessat(dfd, filename, mode);
++	return do_faccessat(dfd, filename, mode, 0);
++}
++
++SYSCALL_DEFINE4(faccessat2, int, dfd, const char __user *, filename, int, mode,
++		int, flags)
++{
++#ifdef CONFIG_KSU
++	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
++#endif
++	return do_faccessat(dfd, filename, mode, flags);
+ }
+ 
+ SYSCALL_DEFINE2(access, const char __user *, filename, int, mode)
+ {
+-	return do_faccessat(AT_FDCWD, filename, mode);
++	return do_faccessat(AT_FDCWD, filename, mode, 0);
+ }
+ 
+ int ksys_chdir(const char __user *filename)
+diff --git a/include/linux/syscalls.h b/include/linux/syscalls.h
+index ba26a905c..0dfa6b134 100644
+--- a/include/linux/syscalls.h
++++ b/include/linux/syscalls.h
+@@ -429,6 +429,8 @@ asmlinkage long sys_ftruncate64(unsigned int fd, loff_t length);
+ #endif
+ asmlinkage long sys_fallocate(int fd, int mode, loff_t offset, loff_t len);
+ asmlinkage long sys_faccessat(int dfd, const char __user *filename, int mode);
++asmlinkage long sys_faccessat2(int dfd, const char __user *filename, int mode,
++			       int flags);
+ asmlinkage long sys_chdir(const char __user *filename);
+ asmlinkage long sys_fchdir(unsigned int fd);
+ asmlinkage long sys_chroot(const char __user *filename);
+@@ -1333,11 +1335,11 @@ static inline int ksys_chmod(const char __user *filename, umode_t mode)
+ 	return do_fchmodat(AT_FDCWD, filename, mode);
+ }
+ 
+-extern long do_faccessat(int dfd, const char __user *filename, int mode);
++extern long do_faccessat(int dfd, const char __user *filename, int mode, int flags);
+ 
+ static inline long ksys_access(const char __user *filename, int mode)
+ {
+-	return do_faccessat(AT_FDCWD, filename, mode);
++	return do_faccessat(AT_FDCWD, filename, mode, 0);
+ }
+ 
+ extern int do_fchownat(int dfd, const char __user *filename, uid_t user,
+diff --git a/include/uapi/asm-generic/unistd.h b/include/uapi/asm-generic/unistd.h
+index 1fc8faa6e..6c55e6d03 100644
+--- a/include/uapi/asm-generic/unistd.h
++++ b/include/uapi/asm-generic/unistd.h
+@@ -851,8 +851,12 @@ __SYSCALL(__NR_pidfd_open, sys_pidfd_open)
+ __SYSCALL(__NR_clone3, sys_clone3)
+ #endif
+ 
++/* 436-438 (openat2, pidfd_getfd) are not in this kernel */
++#define __NR_faccessat2 439
++__SYSCALL(__NR_faccessat2, sys_faccessat2)
++
+ #undef __NR_syscalls
+-#define __NR_syscalls 436
++#define __NR_syscalls 440
+ 
+ /*
+  * 32 bit systems traditionally used different
+diff --git a/include/uapi/linux/fcntl.h b/include/uapi/linux/fcntl.h
+index 1d338357d..5ea9cd53c 100644
+--- a/include/uapi/linux/fcntl.h
++++ b/include/uapi/linux/fcntl.h
+@@ -82,6 +82,8 @@
+ #define AT_SYMLINK_NOFOLLOW	0x100   /* Do not follow symbolic links.  */
+ #define AT_REMOVEDIR		0x200   /* Remove directory instead of
+                                            unlinking file.  */
++#define AT_EACCESS		0x200	/* Test access permitted for
++                                           effective IDs, not real IDs.  */
+ #define AT_SYMLINK_FOLLOW	0x400   /* Follow symbolic links.  */
+ #define AT_NO_AUTOMOUNT		0x800	/* Suppress terminal automount traversal */
+ #define AT_EMPTY_PATH		0x1000	/* Allow empty relative pathname */

@@ -1,0 +1,11 @@
+# Arguments for /usr/libexec/p3s-fbmirror (see the comment at the top of p3s-fbmirror.c).
+#  -c       reset the console after the panel is up (needed for text to show)
+#  -i MS    refresh check interval in milliseconds (default 50)
+#  -t S     switch the panel off after S seconds without a key press (0 = never);
+#           the power button always switches it off and on
+#  -x PX    horizontal offset of the console picture on the panel (default: right-aligned)
+#  -y PX    vertical offset (default: top)
+# The device tree gives a full-panel 1440x3200 console. On a panel with damaged edges, make
+# the console smaller with p3s-console-size (e.g. 1280x2560, see 'p3s-console-size' without
+# arguments); p3s-fbmirror then draws it at the top right, away from the left and bottom edges.
+P3S_FBMIRROR_ARGS="-c -t 120"
